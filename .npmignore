@@ -1,0 +1,13 @@
+src
+tests
+examples
+.github
+node_modules
+coverage
+tsconfig.json
+tsup.config.ts
+vitest.config.ts
+eslint.config.js
+.eslintcache
+*.tsbuildinfo
+.gitignore
