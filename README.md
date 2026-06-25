@@ -1,66 +1,204 @@
 # react-actionmap
 
-A type-safe action registry for React applications.
+Define important React actions once, then use them everywhere.
 
-Define an action once, then reuse the same label, permission rules, visibility, disabled state, confirmation, keyboard shortcut, navigation, execution, and analytics across buttons, menus, command palettes, and custom UI.
+`react-actionmap` keeps the behavior of buttons, menu items, command palettes, keyboard shortcuts, permissions, confirmations, navigation, and analytics consistent.
 
-`react-actionmap` is useful for dashboards, admin panels, SaaS products, CRMs, ERPs, finance applications, and any React interface where the same user action appears in multiple places.
+## What is this?
 
-## Why use it?
+Most applications have actions such as:
 
-In a typical application, one operation may appear as:
+- Delete user
+- Open settings
+- Refresh dashboard
+- Approve invoice
+- Export report
+- Close ticket
 
-- a page button;
+The same action often appears in several places. For example, **Delete user** may be available as a button, a dropdown item, a command-palette result, and a keyboard shortcut.
+
+Without a shared definition, every place must separately implement the action label, permission check, disabled state, confirmation, and execution logic.
+
+`react-actionmap` gives these actions one shared home:
+
+> Define the action once. Use it everywhere.
+
+```tsx
+const actions = createActionMap([
+  {
+    id: 'users.delete',
+    label: 'Delete user',
+    permission: 'users.delete',
+    dangerous: true,
+    confirm: {
+      title: 'Delete user?',
+    },
+    run: ({ selectedUser, api }) =>
+      api.users.delete(selectedUser.id),
+  },
+])
+```
+
+The same definition can then power different parts of the interface:
+
+```tsx
+<ActionButton action="users.delete" />
+<ActionMenuItem action="users.delete" />
+<ActionCommandPalette />
+```
+
+The package automatically keeps the label, permission, visibility, disabled state, confirmation, shortcut, navigation, execution, and lifecycle callbacks consistent.
+
+## The real-world problem
+
+Without a central action registry, action logic is often repeated in:
+
+- a button;
 - a dropdown or context-menu item;
-- a command-palette command;
+- a command-palette item;
 - a keyboard shortcut;
-- a permission-protected operation;
-- a confirmed destructive action;
-- an analytics event.
+- a permission check;
+- a confirmation dialog;
+- analytics tracking.
 
-When each UI surface implements its own rules, behavior can drift. A shortcut may bypass permission checks, a menu may forget confirmation, or different screens may use conflicting labels.
+Repeated logic eventually becomes inconsistent:
 
-With `react-actionmap`, the action definition becomes the single source of truth:
+- The button checks permissions, but the shortcut does not.
+- The delete button asks for confirmation, but the command palette does not.
+- The same action has different labels in different places.
+- A disabled action can still run from another UI surface.
+- Analytics is tracked in one place but forgotten in another.
+
+`react-actionmap` solves this by making the action definition the single source of truth.
+
+Every built-in way of running an action goes through the same checks:
 
 ```text
-Action definition
+Action request
   -> permission and visibility checks
-  -> disabled-state checks
+  -> disabled-state check
   -> optional confirmation
   -> run handler
   -> optional navigation
-  -> lifecycle callbacks
+  -> success or error callback
 ```
 
-## Features
+## Before and after
 
-- Full TypeScript inference for your application context
-- React 18 and React 19 support
-- Centralized action definitions
-- Buttons and menu items
-- Accessible command palette
-- Cross-platform keyboard shortcuts
-- Permission and RBAC checks
-- Conditional visibility and disabled states
-- Confirmation before execution
-- Action-based navigation
-- Analytics and error-reporting callbacks
-- SSR-safe rendering
-- Next.js App Router support
-- Development diagnostics
-- No required stylesheet or UI-library dependency
-- ESM and CommonJS builds
+### Before
 
-## Requirements
+The same behavior is implemented separately:
+
+```tsx
+function DeleteButton() {
+  if (!permissions.includes('users.delete')) return null
+
+  return (
+    <button
+      disabled={!selectedUser || selectedUser.role === 'owner'}
+      onClick={async () => {
+        if (!window.confirm('Delete user?')) return
+        analytics.track('users.delete')
+        await api.users.delete(selectedUser.id)
+      }}
+    >
+      Delete user
+    </button>
+  )
+}
+```
+
+The menu item, shortcut, and command palette would need to repeat the same rules.
+
+### After
+
+Define the behavior once:
+
+```tsx
+const actions = createActionMap<AppContext>([
+  {
+    id: 'users.delete',
+    label: 'Delete user',
+    permission: 'users.delete',
+    when: ({ selectedUser }) => Boolean(selectedUser),
+    disabled: ({ selectedUser }) => selectedUser?.role === 'owner',
+    disabledReason: 'Owner users cannot be deleted',
+    shortcut: 'mod+backspace',
+    dangerous: true,
+    confirm: {
+      title: 'Delete user?',
+      description: 'This action cannot be undone.',
+    },
+    run: async ({ selectedUser, api }) => {
+      if (selectedUser) {
+        await api.users.delete(selectedUser.id)
+      }
+    },
+  },
+])
+```
+
+Then reuse it:
+
+```tsx
+<ActionButton action="users.delete" />
+<ActionMenuItem action="users.delete" />
+<ActionCommandPalette />
+```
+
+The provider can track every action from one place:
+
+```tsx
+<ActionProvider
+  actions={actions}
+  context={context}
+  permissions={currentUser.permissions}
+  onActionSuccess={({ action }) => analytics.track(action.id)}
+>
+  {children}
+</ActionProvider>
+```
+
+## When should you use it?
+
+This package is useful when actions repeat across different parts of a React application.
+
+Common use cases include:
+
+- React dashboards;
+- admin panels;
+- SaaS apps;
+- CRMs;
+- ERPs;
+- finance apps;
+- support panels;
+- complex apps with repeated actions;
+- apps with permissions or React RBAC rules;
+- apps with React keyboard shortcuts;
+- apps with a React command palette;
+- apps with destructive actions that need confirmation.
+
+It is especially useful when a React admin panel or Next.js dashboard has the same operation in buttons, menus, shortcuts, and other UI surfaces.
+
+## When should you not use it?
+
+It may be unnecessary for:
+
+- simple landing pages;
+- static marketing websites;
+- very small apps with only a few buttons;
+- apps that do not have repeated actions.
+
+If an operation only exists in one place and has no shared permission, confirmation, shortcut, or analytics behavior, a normal event handler may be simpler.
+
+## Installation
+
+Requirements:
 
 - Node.js 18 or newer
 - React 18 or newer
 
-React is a peer dependency. Your application should already have React installed.
-
-## Installation
-
-Choose the command for your package manager.
+React is a peer dependency and should already be installed in your application.
 
 ### npm
 
@@ -80,7 +218,7 @@ yarn add react-actionmap
 pnpm add react-actionmap
 ```
 
-If React is not already installed in the project:
+If the project does not already have React:
 
 ```bash
 # npm
@@ -95,9 +233,9 @@ pnpm add react react-dom react-actionmap
 
 ## Quick start
 
-### 1. Describe the application context
+### 1. Define the context
 
-The context contains the live data and services that actions need.
+The **context** is the live application data and services that actions can use.
 
 ```tsx
 type User = {
@@ -116,8 +254,6 @@ type AppContext = {
 ```
 
 ### 2. Create the action map
-
-Define the map outside the component when the definitions themselves are static. Dynamic values should be read from the context.
 
 ```tsx
 import { createActionMap } from 'react-actionmap'
@@ -149,8 +285,7 @@ const actions = createActionMap<AppContext>([
   },
   {
     id: 'users.view',
-    label: ({ selectedUser }) =>
-      selectedUser ? `View ${selectedUser.id}` : 'View user',
+    label: 'View user',
     description: 'Open the selected user profile',
     group: 'Users',
     permission: 'users.view',
@@ -160,9 +295,11 @@ const actions = createActionMap<AppContext>([
 ])
 ```
 
-### 3. Add `ActionProvider`
+Define the map outside the React component when the definitions are static. Read changing values such as the selected user from the context.
 
-The provider connects the static action map to the current context, permissions, router, confirmation UI, and lifecycle callbacks.
+### 3. Add the provider
+
+`ActionProvider` connects the action map to the current context, permissions, router, confirmation UI, and lifecycle callbacks.
 
 ```tsx
 import {
@@ -203,115 +340,77 @@ export function UsersPage({ selectedUser, api }: AppContext) {
 }
 ```
 
-The button, menu item, command palette, and keyboard shortcut now use the same rules.
+The button, menu item, command palette, and keyboard shortcut now use the same action rules.
 
-## How action execution works
+## Core concepts
 
-When an action is requested, `react-actionmap` performs these steps:
+### Action map
 
-1. Checks every required permission.
-2. Evaluates `when` and `hidden`.
-3. Evaluates `disabled` and `disabledReason`.
-4. Calls `onActionRun`.
-5. Requests confirmation when `confirm` is defined.
-6. Runs the `run` handler.
-7. Navigates to the resolved `href`.
-8. Calls `onActionSuccess`.
-
-If `run` throws or navigation throws, `onActionError` is called and the error is rethrown.
-
-Important behavior:
-
-- If both `run` and `href` exist, `run` completes before navigation.
-- Declining confirmation stops execution without calling `onActionSuccess`.
-- `onActionRun` is called before the confirmation prompt.
-- An unauthorized or unavailable action cannot be executed through the central runner.
-
-## Defining actions
-
-Each action supports the following fields:
-
-| Field | Type | Purpose |
-| --- | --- | --- |
-| `id` | `string` | Unique, non-empty action identifier |
-| `label` | `string \| (context) => string` | User-facing action name |
-| `description` | `string \| (context) => string` | Additional action information |
-| `group` | `string` | Groups actions in lists or command palettes |
-| `keywords` | `readonly string[]` | Extra command-palette search terms |
-| `shortcut` | `string` | Keyboard shortcut such as `mod+k` |
-| `permission` | `string \| readonly string[]` | Required permission or permissions |
-| `dangerous` | `boolean` | Marks a destructive or risky action |
-| `confirm` | `ActionConfirm` | Confirmation content shown before execution |
-| `hidden` | `boolean \| (context) => boolean` | Explicitly hides an action |
-| `when` | `(context) => boolean` | Makes an action available only in matching context |
-| `disabled` | `boolean \| (context) => boolean` | Keeps an action visible but prevents execution |
-| `disabledReason` | `string \| (context) => string` | Explains why an action is disabled |
-| `href` | `string \| (context) => string` | Destination to open after execution |
-| `run` | `(context) => void \| Promise<void>` | Action implementation |
-
-`label`, `description`, `hidden`, `disabled`, `disabledReason`, `href`, and confirmation text can be derived from the current context.
-
-`createActionMap` freezes the registry and rejects empty or duplicate IDs.
-
-## Permissions
-
-Pass an array of granted permissions:
+An action map is the central list of actions in the application. `createActionMap` freezes this list and rejects empty or duplicate IDs.
 
 ```tsx
-<ActionProvider
-  actions={actions}
-  context={context}
-  permissions={currentUser.permissions}
->
-  {children}
-</ActionProvider>
-```
-
-Or use a custom permission checker:
-
-```tsx
-<ActionProvider
-  actions={actions}
-  context={context}
-  permissions={(permission, currentContext) =>
-    currentContext.currentUser.permissions.includes(permission)
-  }
->
-  {children}
-</ActionProvider>
-```
-
-An action requiring multiple permissions only runs when every permission is granted:
-
-```tsx
-{
-  id: 'invoices.approve',
-  label: 'Approve invoice',
-  permission: ['invoices.read', 'invoices.approve'],
-  run: ({ invoice, api }) => api.invoices.approve(invoice.id),
-}
-```
-
-Permission behavior:
-
-- An action without `permission` is allowed by default.
-- An action with `permission` is denied when the provider has no `permissions` prop.
-- Unauthorized actions are resolved as hidden.
-- Permissions are checked again during execution, not only during rendering.
-
-## Visibility and disabled states
-
-Use `when` when an action only makes sense in a particular context:
-
-```tsx
-{
-  id: 'records.archive',
-  label: 'Archive record',
-  when: ({ selectedRecord }) => selectedRecord !== null,
-  run: ({ selectedRecord, api }) => {
-    if (selectedRecord) return api.records.archive(selectedRecord.id)
+const actions = createActionMap<AppContext>([
+  {
+    id: 'dashboard.refresh',
+    label: 'Refresh dashboard',
+    run: ({ refresh }) => refresh(),
   },
+])
+```
+
+This is the React action registry that other components and hooks read from.
+
+### Context
+
+Context contains the current data and functions needed by actions:
+
+```tsx
+const context = {
+  selectedUser,
+  currentUser,
+  api,
 }
+
+<ActionProvider
+  actions={actions}
+  context={context}
+>
+  {children}
+</ActionProvider>
+```
+
+When the provider receives a new context value, labels, visibility, disabled states, confirmation text, and destinations are evaluated again.
+
+### Resolved values
+
+Several action fields can be a fixed value or a function of the context:
+
+```tsx
+{
+  id: 'invoices.send',
+  label: ({ invoice }) => `Send invoice ${invoice.number}`,
+  disabled: ({ invoice }) => invoice.status !== 'draft',
+  disabledReason: 'Only draft invoices can be sent',
+  href: ({ invoice }) => `/invoices/${invoice.id}`,
+}
+```
+
+The following fields can use the current context:
+
+- `label`
+- `description`
+- `hidden`
+- `disabled`
+- `disabledReason`
+- `href`
+- confirmation text
+
+### Visibility and availability
+
+Use `when` when the action only makes sense in a particular context:
+
+```tsx
+when: ({ selectedRecord }) => selectedRecord !== null
 ```
 
 Use `hidden` for an explicit visibility rule:
@@ -327,121 +426,61 @@ disabled: ({ selectedRecord }) => selectedRecord?.status === 'locked',
 disabledReason: 'Locked records cannot be archived',
 ```
 
-An action becomes hidden when it:
+An action is hidden when it:
 
 - fails its permission check;
 - returns `false` from `when`;
 - resolves `hidden` to `true`.
 
-A disabled action stays visible by default but has `canRun: false`.
+A disabled action remains visible by default but has `canRun: false`.
 
-## Confirmation
+### Execution order
 
-Add confirmation to any action:
+When an action runs, the package:
 
-```tsx
-{
-  id: 'projects.delete',
-  label: 'Delete project',
-  dangerous: true,
-  confirm: {
-    title: ({ project }) => `Delete ${project.name}?`,
-    description: 'This action cannot be undone.',
-    confirmLabel: 'Delete project',
-    cancelLabel: 'Keep project',
-  },
-  run: ({ project, api }) => api.projects.delete(project.id),
-}
-```
+1. checks all required permissions;
+2. checks `when` and `hidden`;
+3. checks `disabled`;
+4. calls `onActionRun`;
+5. requests confirmation when `confirm` exists;
+6. awaits `run`;
+7. navigates to `href`;
+8. calls `onActionSuccess`.
 
-Without a custom confirmation function, the package uses `window.confirm` in the browser. The browser dialog can only display the title and description; custom button labels require your own confirmation UI.
+Important details:
 
-```tsx
-<ActionProvider
-  actions={actions}
-  context={context}
-  confirm={async (options) => {
-    return openConfirmationDialog({
-      title: options.title,
-      description: options.description,
-      confirmLabel: options.confirmLabel,
-      cancelLabel: options.cancelLabel,
-    })
-  }}
->
-  {children}
-</ActionProvider>
-```
-
-The custom `confirm` function may return either a boolean or `Promise<boolean>`.
-
-## Navigation
-
-An action can navigate without a run handler:
-
-```tsx
-{
-  id: 'settings.open',
-  label: 'Open settings',
-  href: '/settings',
-}
-```
-
-For React Router:
-
-```tsx
-const navigate = useNavigate()
-
-<ActionProvider
-  actions={actions}
-  context={context}
-  navigate={navigate}
->
-  {children}
-</ActionProvider>
-```
-
-For Next.js:
-
-```tsx
-const router = useRouter()
-
-<ActionProvider
-  actions={actions}
-  context={context}
-  navigate={(href) => router.push(href)}
->
-  {children}
-</ActionProvider>
-```
-
-If `navigate` is not provided, href actions use `window.location.assign` in the browser.
+- If both `run` and `href` exist, `run` completes before navigation.
+- Declining confirmation stops the action without calling `onActionSuccess`.
+- `onActionRun` is called before confirmation.
+- Permissions and availability are checked again during execution.
+- If `run` or navigation throws, `onActionError` is called and the error is rethrown.
 
 ## Components
 
+All components must be rendered inside `ActionProvider`.
+
 ### `ActionButton`
 
-Renders a standard `<button>`.
+Renders a standard `<button>` from an action:
 
 ```tsx
 <ActionButton
   action="users.delete"
   className="danger-button"
-  disabledMode="disable"
 />
 ```
 
-Behavior:
+It:
 
-- Uses the action label as its default content.
-- Forwards native button attributes.
-- Uses `type="button"` unless another type is provided.
-- Sets `aria-label`, `aria-busy`, and useful `data-*` attributes.
-- Disables itself while an async action is pending.
-- Hides hidden and unauthorized actions.
-- Keeps disabled actions visible by default.
+- uses the action label as its default content;
+- forwards native button attributes;
+- uses `type="button"` by default;
+- hides hidden and unauthorized actions;
+- disables disabled actions;
+- prevents duplicate clicks while an async action is running;
+- sets accessibility and action-related data attributes.
 
-Use custom children to replace the visible label:
+Custom children replace the visible label:
 
 ```tsx
 <ActionButton action="users.delete">
@@ -450,26 +489,29 @@ Use custom children to replace the visible label:
 </ActionButton>
 ```
 
-Use `disabledMode="hide"` to omit disabled actions:
-
-```tsx
-<ActionButton action="users.delete" disabledMode="hide" />
-```
-
-The `render` prop replaces the complete default button output:
+Hide disabled actions instead of rendering a disabled button:
 
 ```tsx
 <ActionButton
   action="users.delete"
-  render={(state) => <MyReadOnlyActionPreview state={state} />}
+  disabledMode="hide"
 />
 ```
 
-The `render` callback only receives resolved state and does not automatically wire click execution. For a fully custom interactive component, use `useAction` with `useRunAction`.
+The `render` prop replaces the complete default output:
+
+```tsx
+<ActionButton
+  action="users.delete"
+  render={(state) => <MyActionPreview state={state} />}
+/>
+```
+
+The `render` callback does not automatically connect click execution. Use `useAction` and `useRunAction` for a fully custom interactive control.
 
 ### `ActionMenuItem`
 
-Renders a headless `<button role="menuitem">` and supports the same action-specific behavior as `ActionButton`.
+Renders a headless `<button role="menuitem">`:
 
 ```tsx
 <div role="menu">
@@ -478,9 +520,11 @@ Renders a headless `<button role="menuitem">` and supports the same action-speci
 </div>
 ```
 
+It supports the same action-specific options as `ActionButton`.
+
 ### `ActionCommandPalette`
 
-Provides a minimal accessible command palette with no external UI dependency.
+Provides a small accessible React command palette without an external UI dependency:
 
 ```tsx
 <ActionCommandPalette
@@ -501,8 +545,8 @@ It:
 - supports Arrow Up, Arrow Down, Enter, and Escape;
 - closes when the overlay is clicked;
 - excludes hidden and unauthorized actions;
-- displays disabled actions but prevents their execution;
-- uses `mod+k` as its default opening shortcut.
+- shows disabled actions but prevents them from running;
+- uses `mod+k` as the default opening shortcut.
 
 Customize rows and empty results:
 
@@ -530,7 +574,7 @@ It reports:
 - conflicting visible shortcuts;
 - actions without `run` or `href`.
 
-It automatically returns `null` when `process.env.NODE_ENV === 'production'`.
+It returns `null` when `process.env.NODE_ENV === 'production'`.
 
 ## Hooks
 
@@ -538,21 +582,15 @@ All hooks must be used inside `ActionProvider`.
 
 ### `useAction`
 
-Returns the resolved state of one action and throws `ActionNotFoundError` when the ID does not exist.
+Returns the resolved state of one action. It throws `ActionNotFoundError` if the ID does not exist.
 
 ```tsx
 const deleteAction = useAction('users.delete')
-
-return (
-  <p>
-    {deleteAction.label}: {deleteAction.canRun ? 'available' : 'unavailable'}
-  </p>
-)
 ```
 
 ### `useActionState`
 
-Works like `useAction`, but returns `null` for an unknown ID.
+Works like `useAction`, but returns `null` for an unknown ID:
 
 ```tsx
 const optionalAction = useActionState(actionId)
@@ -560,7 +598,7 @@ const optionalAction = useActionState(actionId)
 
 ### `useActions`
 
-Returns resolved actions with optional filtering.
+Returns resolved actions with optional filters:
 
 ```tsx
 const userActions = useActions({
@@ -577,7 +615,7 @@ Defaults:
 
 ### `useCanAction`
 
-Returns `true` only when the action exists, is permitted, is visible, and is not disabled.
+Returns `true` only when the action exists, is permitted, is visible, and is not disabled:
 
 ```tsx
 const canDelete = useCanAction('users.delete')
@@ -585,7 +623,7 @@ const canDelete = useCanAction('users.delete')
 
 ### `useRunAction`
 
-Returns the central async action runner.
+Returns the central async action runner:
 
 ```tsx
 import { useAction, useRunAction } from 'react-actionmap'
@@ -609,80 +647,120 @@ function CustomDeleteControl() {
 }
 ```
 
-The runner applies permission, visibility, disabled, confirmation, execution, navigation, and lifecycle rules.
+The runner applies the same permission, visibility, disabled, confirmation, execution, navigation, and lifecycle rules as the built-in components.
 
-## Resolved action state
+## Permissions
 
-Hooks and render callbacks expose a `ResolvedActionState`:
-
-```ts
-type ResolvedActionState = {
-  id: string
-  label: string
-  description: string | undefined
-  group: string | undefined
-  keywords: readonly string[] | undefined
-  shortcut: string | undefined
-  permission: string | readonly string[] | undefined
-  dangerous: boolean
-  confirm: ResolvedConfirm | undefined
-  hidden: boolean
-  disabled: boolean
-  disabledReason: string | undefined
-  href: string | undefined
-  hasHref: boolean
-  hasRun: boolean
-  canRun: boolean
-}
-```
-
-`canRun` is `true` only when the action is both visible and enabled.
-
-## Error handling
-
-The central runner may throw:
-
-- `ActionNotFoundError`: the requested ID does not exist;
-- `ActionPermissionError`: required permission is missing;
-- `ActionUnavailableError`: the action is hidden or does not match `when`;
-- `ActionDisabledError`: the action is disabled;
-- an error thrown by your `run` or navigation implementation.
+Pass the current user's granted permissions to the provider:
 
 ```tsx
-import {
-  ActionDisabledError,
-  ActionPermissionError,
-  useRunAction,
-} from 'react-actionmap'
+<ActionProvider
+  actions={actions}
+  context={context}
+  permissions={currentUser.permissions}
+>
+  {children}
+</ActionProvider>
+```
 
-function CustomControl() {
-  const runAction = useRunAction()
+An action can require one permission:
 
-  const handleClick = async () => {
-    try {
-      await runAction('reports.export')
-    } catch (error) {
-      if (error instanceof ActionPermissionError) {
-        showToast('You do not have permission to export reports.')
-        return
-      }
-
-      if (error instanceof ActionDisabledError) {
-        showToast(error.message)
-        return
-      }
-
-      throw error
-    }
-  }
-
-  return <button onClick={() => void handleClick()}>Export</button>
+```tsx
+{
+  id: 'users.delete',
+  label: 'Delete user',
+  permission: 'users.delete',
 }
 ```
 
-`ActionButton`, `ActionMenuItem`, command-palette items, and shortcuts prevent unhandled promise rejections. Use `ActionProvider.onActionError` to report errors triggered by those built-in surfaces.
+Or it can require several permissions:
+
+```tsx
+{
+  id: 'invoices.approve',
+  label: 'Approve invoice',
+  permission: ['invoices.read', 'invoices.approve'],
+  run: ({ invoice, api }) => api.invoices.approve(invoice.id),
+}
+```
+
+Every listed permission is required.
+
+For custom React permissions or React RBAC logic, pass a checker function:
+
+```tsx
+<ActionProvider
+  actions={actions}
+  context={context}
+  permissions={(permission, currentContext) =>
+    currentContext.currentUser.permissions.includes(permission)
+  }
+>
+  {children}
+</ActionProvider>
+```
+
+Permission behavior:
+
+- An action without `permission` is allowed by default.
+- An action with `permission` is denied if the provider has no `permissions` prop.
+- Unauthorized actions are hidden.
+- Permissions are checked again when the action runs.
+
+## Confirmation
+
+Add `confirm` to an action that should ask the user before running:
+
+```tsx
+{
+  id: 'projects.delete',
+  label: 'Delete project',
+  dangerous: true,
+  confirm: {
+    title: ({ project }) => `Delete ${project.name}?`,
+    description: 'This action cannot be undone.',
+    confirmLabel: 'Delete project',
+    cancelLabel: 'Keep project',
+  },
+  run: ({ project, api }) => api.projects.delete(project.id),
+}
+```
+
+Without a custom confirmation function, the browser uses `window.confirm`. The native browser dialog displays the title and description, but it cannot use custom button labels.
+
+Provide your own confirmation UI through `ActionProvider`:
+
+```tsx
+<ActionProvider
+  actions={actions}
+  context={context}
+  confirm={(options) =>
+    openConfirmationDialog({
+      title: options.title,
+      description: options.description,
+      confirmLabel: options.confirmLabel,
+      cancelLabel: options.cancelLabel,
+    })
+  }
+>
+  {children}
+</ActionProvider>
+```
+
+The custom `confirm` function can return a boolean or `Promise<boolean>`.
 
 ## Keyboard shortcuts
+
+Add React keyboard shortcuts directly to action definitions:
+
+```tsx
+{
+  id: 'command.open',
+  label: 'Open command',
+  shortcut: 'mod+shift+p',
+  run: () => openCommand(),
+}
+```
 
 Supported modifiers:
 
@@ -693,15 +771,6 @@ Supported modifiers:
 - `alt`
 
 `mod` maps to Command/Meta on Apple platforms and Ctrl elsewhere.
-
-```tsx
-{
-  id: 'command.open',
-  label: 'Open command',
-  shortcut: 'mod+shift+p',
-  run: () => openCommand(),
-}
-```
 
 Common key names include:
 
@@ -721,53 +790,11 @@ Shortcuts are ignored while the user is typing in:
 - `select`
 - content-editable elements
 
-If multiple visible actions use the same shortcut, development mode logs a warning and `ActionDevTools` reports the conflict. The first runnable matching action in the map handles the shortcut.
+If visible actions share a shortcut, development mode logs a warning and `ActionDevTools` reports the conflict. The first runnable matching action in the map handles the shortcut.
 
-## Styling
+## Next.js App Router usage
 
-The package does not require a stylesheet and does not depend on Tailwind CSS, shadcn/ui, Material UI, Chakra UI, Radix UI, or another design system.
-
-Built-in components accept class names:
-
-```tsx
-<ActionButton className="action-button" action="users.delete" />
-
-<ActionCommandPalette
-  overlayClassName="palette-overlay"
-  className="palette-dialog"
-  inputClassName="palette-input"
-  listClassName="palette-list"
-  itemClassName="palette-item"
-  noResultsClassName="palette-empty"
-/>
-```
-
-Rendered action controls expose:
-
-- `data-action-id`
-- `data-action-group`
-- `data-dangerous`
-- `data-disabled`
-- `data-hidden`
-
-Example:
-
-```css
-[data-action-id='users.delete'][data-dangerous='true'] {
-  color: #b42318;
-}
-
-[data-action-id][data-disabled='true'] {
-  cursor: not-allowed;
-  opacity: 0.55;
-}
-```
-
-Hidden actions are not rendered, so rendered controls currently expose `data-hidden="false"`.
-
-## Next.js App Router
-
-Place `ActionProvider` in a Client Component. A Server Component can load permissions and pass the serializable permission list to that wrapper.
+Place `ActionProvider` in a Client Component. A Server Component can load permissions and pass the serializable permission list into that wrapper.
 
 ```tsx
 // app/action-provider.tsx
@@ -864,11 +891,242 @@ export function DashboardActions() {
 }
 ```
 
-Browser globals are not accessed during render. Shortcut listeners, focus management, default confirmation, and default browser navigation only run on the client.
+Browser globals are not accessed during render. Shortcut listeners, focus management, default confirmation, and default browser navigation only run on the client. This makes the package suitable for Next.js dashboard actions.
 
-## Lower-level utilities
+## Styling
 
-The package also exports lower-level helpers for advanced integrations:
+The package requires no stylesheet and has no dependency on Tailwind CSS, shadcn/ui, Material UI, Chakra UI, Radix UI, or another design system.
+
+Built-in components accept class names:
+
+```tsx
+<ActionButton
+  action="users.delete"
+  className="action-button"
+/>
+
+<ActionCommandPalette
+  overlayClassName="palette-overlay"
+  className="palette-dialog"
+  inputClassName="palette-input"
+  listClassName="palette-list"
+  itemClassName="palette-item"
+  noResultsClassName="palette-empty"
+/>
+```
+
+Rendered action controls expose:
+
+- `data-action-id`
+- `data-action-group`
+- `data-dangerous`
+- `data-disabled`
+- `data-hidden`
+
+Example:
+
+```css
+[data-action-id='users.delete'][data-dangerous='true'] {
+  color: #b42318;
+}
+
+[data-action-id][data-disabled='true'] {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+```
+
+Hidden actions are not rendered, so rendered controls currently expose `data-hidden="false"`.
+
+## API reference
+
+### `createActionMap`
+
+Creates an immutable action registry:
+
+```tsx
+const actions = createActionMap<AppContext>(definitions)
+```
+
+It throws if an action has an empty ID or if two actions use the same ID.
+
+### `ActionDefinition`
+
+| Field | Type | Purpose |
+| --- | --- | --- |
+| `id` | `string` | Unique, non-empty action identifier |
+| `label` | `string \| (context) => string` | User-facing action name |
+| `description` | `string \| (context) => string` | Additional action information |
+| `group` | `string` | Groups related actions |
+| `keywords` | `readonly string[]` | Extra command-palette search terms |
+| `shortcut` | `string` | Shortcut such as `mod+k` |
+| `permission` | `string \| readonly string[]` | Required permission or permissions |
+| `dangerous` | `boolean` | Marks a risky or destructive action |
+| `confirm` | `ActionConfirm` | Confirmation content |
+| `hidden` | `boolean \| (context) => boolean` | Explicit visibility rule |
+| `when` | `(context) => boolean` | Context availability rule |
+| `disabled` | `boolean \| (context) => boolean` | Prevents execution while remaining visible |
+| `disabledReason` | `string \| (context) => string` | Explains the disabled state |
+| `href` | `string \| (context) => string` | Destination after execution |
+| `run` | `(context) => void \| Promise<void>` | Action implementation |
+
+An action can use `run`, `href`, or both.
+
+### `ActionProvider`
+
+```tsx
+<ActionProvider
+  actions={actions}
+  context={context}
+  permissions={permissions}
+  navigate={(href) => router.push(href)}
+  confirm={showConfirmation}
+  onActionRun={trackAttempt}
+  onActionSuccess={trackSuccess}
+  onActionError={reportError}
+>
+  {children}
+</ActionProvider>
+```
+
+Props:
+
+| Prop | Purpose |
+| --- | --- |
+| `actions` | Action map created by `createActionMap` |
+| `context` | Current data and services passed to actions |
+| `permissions` | Granted permission list or checker function |
+| `navigate` | Handles resolved `href` values |
+| `confirm` | Custom sync or async confirmation function |
+| `onActionRun` | Called before confirmation and execution |
+| `onActionSuccess` | Called after successful execution and navigation |
+| `onActionError` | Called when execution or navigation throws |
+| `children` | React content using the action registry |
+
+Without `navigate`, href actions use `window.location.assign` in the browser.
+
+### Component API
+
+#### `ActionButton`
+
+Important props:
+
+- `action`
+- `children`
+- `className`
+- `disabledMode: 'disable' | 'hide'`
+- `render`
+- native button attributes except controlled action fields
+
+#### `ActionMenuItem`
+
+Accepts the same action-specific props as `ActionButton` and renders `role="menuitem"`.
+
+#### `ActionCommandPalette`
+
+Important props:
+
+- `openShortcut`
+- `placeholder`
+- `className`
+- `overlayClassName`
+- `inputClassName`
+- `listClassName`
+- `itemClassName`
+- `noResultsClassName`
+- `renderItem`
+- `renderEmpty`
+
+#### `ActionDevTools`
+
+Accepts a `position` prop:
+
+```ts
+'bottom-right' | 'bottom-left' | 'top-right' | 'top-left'
+```
+
+### Hook API
+
+```tsx
+const state = useAction(id)
+const stateOrNull = useActionState(id)
+const states = useActions(options)
+const canRun = useCanAction(id)
+const runAction = useRunAction()
+```
+
+### `ResolvedActionState`
+
+```ts
+type ResolvedActionState = {
+  id: string
+  label: string
+  description: string | undefined
+  group: string | undefined
+  keywords: readonly string[] | undefined
+  shortcut: string | undefined
+  permission: string | readonly string[] | undefined
+  dangerous: boolean
+  confirm: ResolvedConfirm | undefined
+  hidden: boolean
+  disabled: boolean
+  disabledReason: string | undefined
+  href: string | undefined
+  hasHref: boolean
+  hasRun: boolean
+  canRun: boolean
+}
+```
+
+`canRun` is `true` only when the action is visible and enabled.
+
+### Errors
+
+The central runner can throw:
+
+- `ActionNotFoundError`: the requested ID does not exist;
+- `ActionPermissionError`: a required permission is missing;
+- `ActionUnavailableError`: the action is hidden or does not match `when`;
+- `ActionDisabledError`: the action is disabled;
+- an error thrown by `run` or the navigation implementation.
+
+```tsx
+import {
+  ActionDisabledError,
+  ActionPermissionError,
+  useRunAction,
+} from 'react-actionmap'
+
+function ExportButton() {
+  const runAction = useRunAction()
+
+  const handleClick = async () => {
+    try {
+      await runAction('reports.export')
+    } catch (error) {
+      if (error instanceof ActionPermissionError) {
+        showToast('You do not have permission to export reports.')
+        return
+      }
+
+      if (error instanceof ActionDisabledError) {
+        showToast(error.message)
+        return
+      }
+
+      throw error
+    }
+  }
+
+  return <button onClick={() => void handleClick()}>Export</button>
+}
+```
+
+Built-in buttons, menu items, command-palette items, and shortcuts prevent unhandled promise rejections. Use `ActionProvider.onActionError` to report errors triggered by those surfaces.
+
+### Lower-level utilities
+
+Advanced integrations can also use:
 
 - `evaluateAction`
 - `canRunAction`
@@ -881,9 +1139,34 @@ The package also exports lower-level helpers for advanced integrations:
 
 Most applications only need `createActionMap`, `ActionProvider`, the hooks, and the built-in components.
 
-## Recommended project structure
+### Exported types
 
-For larger applications, keep definitions near their domain and combine them into one map:
+The package exports these public TypeScript types:
+
+- `ActionButtonProps`
+- `ActionCommandPaletteProps`
+- `ActionConfirm`
+- `ActionDefinition`
+- `ActionDevToolsProps`
+- `ActionErrorEvent`
+- `ActionMap`
+- `ActionMenuItemProps`
+- `ActionProviderProps`
+- `ActionRunEvent`
+- `MaybePromise`
+- `ParsedShortcut`
+- `PermissionChecker`
+- `Resolvable`
+- `ResolvedActionState`
+- `ResolvedConfirm`
+- `RunAction`
+- `ShortcutAction`
+- `ShortcutConflict`
+- `UseActionsOptions`
+
+### Suggested project structure
+
+For a larger app, keep action definitions near their domain:
 
 ```text
 src/
@@ -927,7 +1210,7 @@ export const actions = createActionMap([
 
 ## Development
 
-Install dependencies with the package manager used by this repository:
+Install repository dependencies:
 
 ```bash
 npm install
